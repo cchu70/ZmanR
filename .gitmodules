@@ -1,0 +1,15 @@
+[submodule "pqe/src/SCORPIUS"]
+	path = pqe/src/SCORPIUS
+	url = https://github.com/rcannood/SCORPIUS
+[submodule "pqe/src/monocle2"]
+	path = pqe/src/monocle2
+	url = https://github.com/cole-trapnell-lab/monocle-release
+[submodule "pqe/src/redPATH"]
+	path = pqe/src/redPATH
+	url = https://github.com/tinglabs/redPATH
+[submodule "pqe/src/destiny"]
+	path = pqe/src/destiny
+	url = https://github.com/theislab/destiny
+[submodule "pqe/src/palantir"]
+	path = pqe/src/palantir
+	url = https://github.com/dpeerlab/Palantir

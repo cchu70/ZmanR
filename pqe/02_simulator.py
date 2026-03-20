@@ -113,7 +113,7 @@ app.layout = html.Div([
                        tooltip={"placement": "bottom", "always_visible": True}),
         ], style={"flex": "1", "paddingRight": "28px"}),
 
-        # bar chart options
+        # bar chart + CDF options
         html.Div([
             html.B("Bar chart options", style=_ls),
             dcc.Checklist(
@@ -122,7 +122,18 @@ app.layout = html.Div([
                 value=["show"],
                 style={**_ls, "marginTop": "10px"},
             ),
-        ], style={"flex": "0 0 180px", "paddingRight": "20px"}),
+            html.B("CDF line style", style={**_ls, "display": "block", "marginTop": "14px"}),
+            dcc.RadioItems(
+                id="cdf-style",
+                options=[
+                    {"label": " Direct (diagonal)", "value": "linear"},
+                    {"label": " Step (hv)",          "value": "hv"},
+                ],
+                value="linear",
+                style={**_ls, "marginTop": "6px"},
+                labelStyle={"display": "block"},
+            ),
+        ], style={"flex": "0 0 200px", "paddingRight": "20px"}),
 
         # label time points + colors
         html.Div([
@@ -192,9 +203,10 @@ app.layout = html.Div([
     Input("show-unlabeled", "value"),
     Input("min-circ",     "value"),
     Input("max-circ",     "value"),
+    Input("cdf-style",    "value"),
 )
 def update(t_b, t_c, n_cells, lt1, lt2, lt3, lc1, lc2, lc3,
-           show_unlabeled, min_circ, max_circ):
+           show_unlabeled, min_circ, max_circ, cdf_style):
 
     # ── parse inputs ──────────────────────────────────────────────────────
     t_b     = int(t_b     or 12)
@@ -409,16 +421,23 @@ def update(t_b, t_c, n_cells, lt1, lt2, lt3, lc1, lc2, lc3,
         x_cdf = [0.0] + sorted_lts_rev
         y_cdf = [0.0] + cum_props
 
-        # AUC: trapezoid rule over the diagonal segments
-        auc = sum(
-            (y_cdf[i] + y_cdf[i+1]) / 2 * abs(x_cdf[i+1] - x_cdf[i])
-            for i in range(len(x_cdf) - 1)
-        )
+        # AUC: trapezoid rule for diagonal lines, left-endpoint rectangles for hv steps
+        if cdf_style == "hv":
+            auc = sum(
+                y_cdf[i] * abs(x_cdf[i+1] - x_cdf[i])
+                for i in range(len(x_cdf) - 1)
+            )
+        else:
+            auc = sum(
+                (y_cdf[i] + y_cdf[i+1]) / 2 * abs(x_cdf[i+1] - x_cdf[i])
+                for i in range(len(x_cdf) - 1)
+            )
 
+        line_shape = cdf_style  # "linear" or "hv"
         cdf_fig.add_trace(go.Scatter(
             x=x_cdf, y=y_cdf, mode="lines",
-            line=dict(color=sc, width=2.5),
-            name=f"State {s}  (AUC = {np.abs(x_cdf[-1]) - auc:.1f})", # subtract the full volume (1 * 36 hr)
+            line=dict(color=sc, width=2.5, shape=line_shape),
+            name=f"State {s}  (AUC = {np.abs(x_cdf[-1]) - auc:.1f})",
         ))
 
     # Diagonal reference line: (0, 0) → (earliest label time, 1.0)
