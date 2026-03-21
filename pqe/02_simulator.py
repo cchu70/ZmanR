@@ -304,7 +304,7 @@ def update(t_b, t_c, t_xy, t_yz, n_cells,
 
     if show_t2:
         # Independent population for XYZ — different seed
-        cells2  = simulate_cells(n_cells, *_circ, seed=42)
+        cells2  = simulate_cells(n_cells, *_circ, seed=99)
         labels2 = [get_label(ce, te, label_times) for ce, te in cells2]
         states2 = [get_final_state_2(te, t_xy_val, t_yz_abs) for _, te in cells2]
 
