@@ -1,12 +1,12 @@
 #!/usr/bin/env Rscript
 ADATA_PATH <- "/home/unix/cchu/projects/ZmanR/pqe/results/06/zmanseq_momac_metacells_annot.h5ad"
-OUT_PLOT   <- "/home/unix/cchu/projects/ZmanR/pqe/results/pseudotime_momac_hvg/monocle2_pseudotime.png"
+OUT_PLOT   <- "/home/unix/cchu/projects/ZmanR/pqe/results/pseudotime_momac_full/monocle2_pseudotime.png"
 
 .sd <- dirname(normalizePath(sub("--file=", "", commandArgs(FALSE)[grep("--file=", commandArgs(FALSE))])))
 source(file.path(.sd, "utils.R")); source(file.path(.sd, "utils_momac.R"))
 library(monocle)
 
-genes <- load_hvg_genes(ADATA_PATH)
+genes <- load_full_genes()
 dat   <- load_adata(ADATA_PATH, gene_list = genes)
 expr_mat <- t(dat$expr)
 pd <- new("AnnotatedDataFrame", data = data.frame(row.names = dat$cell_names,
@@ -25,5 +25,5 @@ root_state <- pData(cds)[start_cell, "State"]
 cat("Start cell:", start_cell, "root state:", as.character(root_state), "\n")
 cds <- orderCells(cds, root_state = root_state)
 pseudotime <- pData(cds)$Pseudotime
-save_pseudotime_plot(dat$sc_x, dat$sc_y, pseudotime, OUT_PLOT, "Monocle2 pseudotime (momac HVG)")
+save_pseudotime_plot(dat$sc_x, dat$sc_y, pseudotime, OUT_PLOT, "Monocle2 pseudotime (momac full)")
 save_pseudotime_tsv(dat$cell_names, dat$coldata, pseudotime, sub("\\.png$", ".tsv", OUT_PLOT))

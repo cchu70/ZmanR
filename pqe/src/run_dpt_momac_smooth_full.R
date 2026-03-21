@@ -1,15 +1,15 @@
 #!/usr/bin/env Rscript
 ADATA_PATH <- "/home/unix/cchu/projects/ZmanR/pqe/results/06/zmanseq_momac_metacells_annot.h5ad"
-OUT_PLOT   <- "/home/unix/cchu/projects/ZmanR/pqe/results/pseudotime_momac_smooth/dpt_pseudotime.png"
+OUT_PLOT   <- "/home/unix/cchu/projects/ZmanR/pqe/results/pseudotime_momac_smooth_full/dpt_pseudotime.png"
 
 .sd <- dirname(normalizePath(sub("--file=", "", commandArgs(FALSE)[grep("--file=", commandArgs(FALSE))])))
 source(file.path(.sd, "utils.R")); source(file.path(.sd, "utils_momac.R"))
 library(destiny)
 
-genes <- load_smooth_genes()
+genes <- load_smooth_full_genes()
 dat   <- load_adata(ADATA_PATH, gene_list = genes)
 cat("Building DiffusionMap...\n"); set.seed(42)
-dm  <- DiffusionMap(dat$expr, n_pcs = min(30, ncol(dat$expr) - 1), n_eigs = min(10, ncol(dat$expr) - 2), verbose = TRUE)
+dm  <- DiffusionMap(dat$expr, n_pcs = min(30, ncol(dat$expr) - 1), n_eigs = 10, verbose = TRUE)
 start_idx  <- which.min(dat$coldata$cTET)
 atrem_idxs <- which(dat$coldata$enrichment > 0)
 igg_idxs   <- which(dat$coldata$enrichment < 0)
@@ -25,5 +25,5 @@ pt_root  <- dpt_mat[, start_idx]
 pt_atrem <- dpt_mat[, tip_atrem]
 pt_igg   <- dpt_mat[, tip_igg]
 dpt_cols <- data.frame(DPT_root = pt_root, DPT_atrem = pt_atrem, DPT_igg = pt_igg)
-save_pseudotime_plot(dat$sc_x, dat$sc_y, pt_root, OUT_PLOT, "DPT pseudotime (momac smooth)")
+save_pseudotime_plot(dat$sc_x, dat$sc_y, pt_root, OUT_PLOT, "DPT pseudotime (momac smooth_full)")
 save_pseudotime_tsv(dat$cell_names, dat$coldata, pt_root, sub("\\.png$", ".tsv", OUT_PLOT), extra_cols = dpt_cols)

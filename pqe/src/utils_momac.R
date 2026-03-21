@@ -8,14 +8,13 @@ NAIVE_ATREM <- file.path(REPO_ROOT, "results/06/atrem_hvg_spearman_df.naive.csv"
 SMOOTH_IGG  <- file.path(REPO_ROOT, "results/06/smoothed_igg_hvg_spearman_df.csv")
 SMOOTH_ATREM <- file.path(REPO_ROOT, "results/06/smoothed_atrem_hvg_spearman_df.csv")
 
-# Naive CSVs: genes as columns, metacells as rows, values are -log10(p_value).
-# Returns intersection of genes with p < pval_thresh in at least one metacell.
+# Naive HVG CSVs: genes as rows, columns include p_value.
+# Returns intersection of genes with p_value < pval_thresh.
 load_naive_genes <- function(pval_thresh = 0.05) {
-  threshold <- -log10(pval_thresh)
-  igg   <- read.csv(NAIVE_IGG,   row.names = 1, check.names = FALSE)
-  atrem <- read.csv(NAIVE_ATREM, row.names = 1, check.names = FALSE)
-  igg_sig   <- colnames(igg)[apply(igg   > threshold, 2, any)]
-  atrem_sig <- colnames(atrem)[apply(atrem > threshold, 2, any)]
+  igg   <- read.csv(NAIVE_IGG,   row.names = 1)
+  atrem <- read.csv(NAIVE_ATREM, row.names = 1)
+  igg_sig   <- rownames(igg)[igg$p_value   < pval_thresh]
+  atrem_sig <- rownames(atrem)[atrem$p_value < pval_thresh]
   genes <- intersect(igg_sig, atrem_sig)
   cat("Naive gene intersection (p <", pval_thresh, "):", length(genes), "genes\n")
   genes
@@ -30,6 +29,33 @@ load_smooth_genes <- function(pval_thresh = 0.05) {
   atrem_sig <- rownames(atrem_s)[atrem_s$p_value < pval_thresh]
   genes <- intersect(igg_sig, atrem_sig)
   cat("Smooth gene intersection (p <", pval_thresh, "):", length(genes), "genes\n")
+  genes
+}
+
+FULL_IGG     <- file.path(REPO_ROOT, "results/06/igg_full_spearman_df.naive.csv")
+FULL_ATREM   <- file.path(REPO_ROOT, "results/06/atrem_full_spearman_df.naive.csv")
+SMOOTH_FULL_IGG   <- file.path(REPO_ROOT, "results/06/smoothed_igg_full_spearman_df.csv")
+SMOOTH_FULL_ATREM <- file.path(REPO_ROOT, "results/06/smoothed_atrem_full_spearman_df.csv")
+
+# Full naive CSVs: genes as rows, columns include p_value.
+load_full_genes <- function(pval_thresh = 0.05) {
+  igg   <- read.csv(FULL_IGG,   row.names = 1)
+  atrem <- read.csv(FULL_ATREM, row.names = 1)
+  igg_sig   <- rownames(igg)[igg$p_value   < pval_thresh]
+  atrem_sig <- rownames(atrem)[atrem$p_value < pval_thresh]
+  genes <- intersect(igg_sig, atrem_sig)
+  cat("Full naive gene intersection (p <", pval_thresh, "):", length(genes), "genes\n")
+  genes
+}
+
+# Smoothed full CSVs: genes as rows, columns include p_value.
+load_smooth_full_genes <- function(pval_thresh = 0.05) {
+  igg_s   <- read.csv(SMOOTH_FULL_IGG,   row.names = 1)
+  atrem_s <- read.csv(SMOOTH_FULL_ATREM, row.names = 1)
+  igg_sig   <- rownames(igg_s)[igg_s$p_value   < pval_thresh]
+  atrem_sig <- rownames(atrem_s)[atrem_s$p_value < pval_thresh]
+  genes <- intersect(igg_sig, atrem_sig)
+  cat("Smooth full gene intersection (p <", pval_thresh, "):", length(genes), "genes\n")
   genes
 }
 

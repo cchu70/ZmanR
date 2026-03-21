@@ -1,23 +1,25 @@
-"""Run Palantir pseudotime on momac metacells using smoothed Spearman gene intersection."""
+"""Run Palantir pseudotime on momac metacells using smoothed full Spearman gene intersection."""
 import numpy as np, pandas as pd, matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt, scanpy as sc, palantir
 
 ADATA_PATH = "/home/unix/cchu/projects/ZmanR/pqe/results/06/zmanseq_momac_metacells_annot_clean.h5ad"
-OUT_PLOT   = "/home/unix/cchu/projects/ZmanR/pqe/results/pseudotime_momac_smooth/palantir_pseudotime.png"
+OUT_PLOT   = "/home/unix/cchu/projects/ZmanR/pqe/results/pseudotime_momac_smooth_full/palantir_pseudotime.png"
 REPO       = "/home/unix/cchu/projects/ZmanR/pqe/results/06"
 
-# Gene selection: smoothed Spearman intersection (p < 0.05)
-igg_s   = pd.read_csv(f"{REPO}/smoothed_igg_hvg_spearman_df.csv",   index_col=0)
-atrem_s = pd.read_csv(f"{REPO}/smoothed_atrem_hvg_spearman_df.csv", index_col=0)
+igg_s   = pd.read_csv(f"{REPO}/smoothed_igg_full_spearman_df.csv",   index_col=0)
+atrem_s = pd.read_csv(f"{REPO}/smoothed_atrem_full_spearman_df.csv", index_col=0)
 igg_sig   = set(igg_s.index[igg_s["p_value"]   < 0.05])
 atrem_sig = set(atrem_s.index[atrem_s["p_value"] < 0.05])
 genes = list(igg_sig & atrem_sig)
-print(f"Smooth gene intersection: {len(genes)} genes")
+print(f"Smooth full gene intersection: {len(genes)} genes")
 
 adata = sc.read_h5ad(ADATA_PATH)
 genes = [g for g in genes if g in adata.var_names]
 print(f"Genes present in adata: {len(genes)}")
 adata = adata[:, genes].copy()
+
+# Mark all genes as highly_variable so run_pca uses the full gene set
+adata.var["highly_variable"] = True
 
 n_pcs = min(10, len(genes) - 1)
 palantir.utils.run_pca(adata, n_components=n_pcs)
@@ -34,7 +36,7 @@ sc_x, sc_y, pt = adata.obs["sc_x"].astype(float), adata.obs["sc_y"].astype(float
 fig, ax = plt.subplots(figsize=(6, 5))
 sc_plot = ax.scatter(sc_x, sc_y, c=pt, cmap="plasma", s=8, alpha=0.8, linewidths=0)
 plt.colorbar(sc_plot, ax=ax, label="Pseudotime")
-ax.set_title("Palantir pseudotime (momac smooth)"); ax.set_xlabel("sc_x"); ax.set_ylabel("sc_y")
+ax.set_title("Palantir pseudotime (momac smooth_full)"); ax.set_xlabel("sc_x"); ax.set_ylabel("sc_y")
 plt.tight_layout(); plt.savefig(OUT_PLOT, dpi=150); print(f"Plot saved to {OUT_PLOT}")
 
 out_tsv = OUT_PLOT.replace(".png", ".tsv")

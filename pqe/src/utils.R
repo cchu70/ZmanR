@@ -39,10 +39,8 @@ load_adata <- function(h5ad_path, max_cells = NULL, n_hvg = 2000, gene_list = NU
     cat("Downsampled to:", max_cells, "\n")
   }
 
-  # Log-normalize: counts per 10k, then log1p
-  lib_size  <- colSums(counts)
-  norm      <- t(t(counts) * (1e4 / lib_size))
-  log_norm  <- log1p(norm)
+  # X is already log-normalized; use directly
+  log_norm <- counts
 
   # Gene selection: use gene_list if provided, else select top HVGs by variance
   if (!is.null(gene_list)) {
@@ -71,10 +69,12 @@ load_adata <- function(h5ad_path, max_cells = NULL, n_hvg = 2000, gene_list = NU
 }
 
 # Save cell metadata + pseudotime column as TSV.
-save_pseudotime_tsv <- function(cell_names, coldata, pseudotime, out_path) {
+# extra_cols: optional data.frame of additional columns to append (e.g. DPT2, DPT3)
+save_pseudotime_tsv <- function(cell_names, coldata, pseudotime, out_path, extra_cols = NULL) {
   df <- coldata
   df$cell_id    <- cell_names
   df$pseudotime <- as.numeric(pseudotime)
+  if (!is.null(extra_cols)) df <- cbind(df, extra_cols)
   write.table(df, out_path, sep = "\t", quote = FALSE, row.names = FALSE)
   cat("TSV saved to", out_path, "\n")
 }

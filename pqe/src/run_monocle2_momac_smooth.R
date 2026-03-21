@@ -20,6 +20,10 @@ cds <- setOrderingFilter(cds, rownames(expr_mat))
 cat("Running Monocle2 DDRTree...\n")
 cds <- reduceDimension(cds, max_components = 2, method = "DDRTree")
 cds <- orderCells(cds)
+start_cell <- dat$cell_names[which.min(dat$coldata$cTET)]
+root_state <- pData(cds)[start_cell, "State"]
+cat("Start cell:", start_cell, "root state:", as.character(root_state), "\n")
+cds <- orderCells(cds, root_state = root_state)
 pseudotime <- pData(cds)$Pseudotime
 save_pseudotime_plot(dat$sc_x, dat$sc_y, pseudotime, OUT_PLOT, "Monocle2 pseudotime (momac smooth)")
 save_pseudotime_tsv(dat$cell_names, dat$coldata, pseudotime, sub("\\.png$", ".tsv", OUT_PLOT))

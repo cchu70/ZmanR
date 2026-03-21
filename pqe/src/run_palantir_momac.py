@@ -6,12 +6,11 @@ ADATA_PATH = "/home/unix/cchu/projects/ZmanR/pqe/results/06/zmanseq_momac_metace
 OUT_PLOT   = "/home/unix/cchu/projects/ZmanR/pqe/results/pseudotime_momac/palantir_pseudotime.png"
 REPO       = "/home/unix/cchu/projects/ZmanR/pqe/results/06"
 
-# Gene selection: naive Spearman intersection (p < 0.05, -log10(p) > 1.301)
-threshold = -np.log10(0.05)
-igg   = pd.read_csv(f"{REPO}/igg_hvg_spearman_df.naive.csv",   index_col=0)
-atrem = pd.read_csv(f"{REPO}/atrem_hvg_spearman_df.naive.csv", index_col=0)
-igg_sig   = set(igg.columns[(igg   > threshold).any(axis=0)])
-atrem_sig = set(atrem.columns[(atrem > threshold).any(axis=0)])
+# Gene selection: naive Spearman intersection (p < 0.05)
+igg_df   = pd.read_csv(f"{REPO}/igg_hvg_spearman_df.naive.csv",   index_col=0)
+atrem_df = pd.read_csv(f"{REPO}/atrem_hvg_spearman_df.naive.csv", index_col=0)
+igg_sig   = set(igg_df.index[igg_df["p_value"]   < 0.05])
+atrem_sig = set(atrem_df.index[atrem_df["p_value"] < 0.05])
 genes = list(igg_sig & atrem_sig)
 print(f"Naive gene intersection: {len(genes)} genes")
 
@@ -19,20 +18,18 @@ adata = sc.read_h5ad(ADATA_PATH)
 genes = [g for g in genes if g in adata.var_names]
 print(f"Genes present in adata: {len(genes)}")
 adata = adata[:, genes].copy()
+# Mark all genes as highly_variable so run_pca uses the full gene set
+adata.var["highly_variable"] = True
 
-sc.pp.normalize_total(adata, target_sum=1e4); sc.pp.log1p(adata)
-
-palantir.utils.run_pca(adata, n_components=min(30, len(genes) - 1))
-palantir.utils.run_diffusion_maps(adata, n_components=10)
+n_pcs = min(10, len(genes) - 1)
+palantir.utils.run_pca(adata, n_components=n_pcs)
+palantir.utils.run_diffusion_maps(adata, n_components=min(5, n_pcs))
 palantir.utils.determine_multiscale_space(adata)
 
-neg_cells = adata.obs_names[adata.obs["enrichment"] == "IgG"]
-if len(neg_cells) == 0: neg_cells = adata.obs_names
-neg_sc_x  = adata.obs.loc[neg_cells, "sc_x"].astype(float)
-start_cell = neg_cells[np.argmin(np.abs(neg_sc_x - neg_sc_x.median()))]
-print(f"Start cell: {start_cell}")
+start_cell = adata.obs["cTET"].idxmin()
+print(f"Start cell: {start_cell} (cTET = {adata.obs.loc[start_cell, 'cTET']:.4f})")
 
-pr_res = palantir.core.run_palantir(adata, start_cell, num_waypoints=20, knn=10, use_early_cell_as_start=True)
+pr_res = palantir.core.run_palantir(adata, start_cell, num_waypoints=40, knn=10, use_early_cell_as_start=True)
 adata.obs["palantir_pseudotime"] = pr_res.pseudotime
 
 sc_x, sc_y, pt = adata.obs["sc_x"].astype(float), adata.obs["sc_y"].astype(float), adata.obs["palantir_pseudotime"].astype(float)

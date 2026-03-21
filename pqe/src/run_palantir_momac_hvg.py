@@ -9,17 +9,12 @@ adata = sc.read_h5ad(ADATA_PATH)
 adata = adata[:, adata.var["highly_variable"]].copy()
 print(f"HVG genes: {adata.n_vars}")
 
-sc.pp.normalize_total(adata, target_sum=1e4); sc.pp.log1p(adata)
-
 palantir.utils.run_pca(adata, n_components=30)
 palantir.utils.run_diffusion_maps(adata, n_components=10)
 palantir.utils.determine_multiscale_space(adata)
 
-neg_cells = adata.obs_names[adata.obs["enrichment"] == "IgG"]
-if len(neg_cells) == 0: neg_cells = adata.obs_names
-neg_sc_x  = adata.obs.loc[neg_cells, "sc_x"].astype(float)
-start_cell = neg_cells[np.argmin(np.abs(neg_sc_x - neg_sc_x.median()))]
-print(f"Start cell: {start_cell}")
+start_cell = adata.obs["cTET"].idxmin()
+print(f"Start cell: {start_cell} (cTET = {adata.obs.loc[start_cell, 'cTET']:.4f})")
 
 pr_res = palantir.core.run_palantir(adata, start_cell, num_waypoints=20, knn=10, use_early_cell_as_start=True)
 adata.obs["palantir_pseudotime"] = pr_res.pseudotime

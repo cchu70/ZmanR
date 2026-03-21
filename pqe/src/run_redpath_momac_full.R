@@ -1,20 +1,19 @@
 #!/usr/bin/env Rscript
 ADATA_PATH <- "/home/unix/cchu/projects/ZmanR/pqe/results/06/zmanseq_momac_metacells_annot.h5ad"
-OUT_PLOT   <- "/home/unix/cchu/projects/ZmanR/pqe/results/pseudotime_momac_zman_s3/redpath_pseudotime.png"
+OUT_PLOT   <- "/home/unix/cchu/projects/ZmanR/pqe/results/pseudotime_momac_full/redpath_pseudotime.png"
 
 .sd <- dirname(normalizePath(sub("--file=", "", commandArgs(FALSE)[grep("--file=", commandArgs(FALSE))])))
 source(file.path(.sd, "utils.R")); source(file.path(.sd, "utils_momac.R"))
 library(redPATH)
 
-genes <- load_zman_s3_genes()
+genes <- load_full_genes()
 dat   <- load_adata(ADATA_PATH, gene_list = genes)
-cat("Filtering genes by dispersion...\n")
-filtered <- filter_exp(dat$expr, dispersion_threshold = 1, threads = 4)
-cat("Genes after dispersion filter:", ncol(filtered), "\n")
+# Small gene set (~50 genes); skip dispersion filter and use narrow base_path_range
+cat("Genes:", ncol(dat$expr), "— skipping dispersion filter for small gene set\n")
 cat("Running redPATH...\n")
-pseudotime <- redpath(filtered, threadnum = 4, base_path_range = c(3:7))
+pseudotime <- redpath(dat$expr, threadnum = 4, base_path_range = c(2:6))
 start_idx <- which.min(dat$coldata$cTET)
 if (pseudotime[start_idx] > median(pseudotime, na.rm = TRUE)) pseudotime <- max(pseudotime, na.rm = TRUE) - pseudotime + min(pseudotime, na.rm = TRUE)
 cat("Start cell:", dat$cell_names[start_idx], "(cTET =", dat$coldata$cTET[start_idx], ")\n")
-save_pseudotime_plot(dat$sc_x, dat$sc_y, pseudotime, OUT_PLOT, "redPATH pseudotime (momac zman_s3)")
+save_pseudotime_plot(dat$sc_x, dat$sc_y, pseudotime, OUT_PLOT, "redPATH pseudotime (momac full)")
 save_pseudotime_tsv(dat$cell_names, dat$coldata, pseudotime, sub("\\.png$", ".tsv", OUT_PLOT))

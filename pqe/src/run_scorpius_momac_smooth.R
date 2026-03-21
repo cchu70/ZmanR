@@ -11,5 +11,8 @@ dat   <- load_adata(ADATA_PATH, gene_list = genes)
 cat("Running SCORPIUS...\n")
 space <- reduce_dimensionality(dat$expr, dist = "spearman", ndim = 3)
 traj  <- infer_trajectory(space)
+start_idx <- which.min(dat$coldata$cTET)
+if (traj$time[start_idx] > 0.5) traj$time <- 1 - traj$time
+cat("Start cell:", dat$cell_names[start_idx], "(cTET =", dat$coldata$cTET[start_idx], ")\n")
 save_pseudotime_plot(dat$sc_x, dat$sc_y, traj$time, OUT_PLOT, "SCORPIUS pseudotime (momac smooth)")
 save_pseudotime_tsv(dat$cell_names, dat$coldata, traj$time, sub("\\.png$", ".tsv", OUT_PLOT))
