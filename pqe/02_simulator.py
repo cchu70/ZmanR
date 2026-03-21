@@ -1,18 +1,16 @@
 """
-02_simulator.py  –  Zman-seq interactive trajectory simulator (v4)
+02_simulator.py  –  Zman-seq interactive trajectory simulator (v5)
 
-Cells have:
-  - circ_entry : when the cell enters blood (random offset before tumor entry)
-  - tumor_entry: when it enters the TME (uniform across -48 to -1 hr)
+Two optional trajectories:
+  - Trajectory 1: A → B → C  (purple gradient, always shown)
+  - Trajectory 2: X → Y → Z  (blue gradient, toggle on/off)
 
-Harvest is at t=0. Cells are colored by the latest dye-injection time point
-they were in circulation for. That color drives the dashed line and the fill/
-border of the tumor state rectangles.
+When both are active, each cell's timeline row is split:
+  traj 1 rectangles above the circulation line, traj 2 below.
 """
 
 import dash
 from dash import dcc, html, Input, Output
-from plotly.subplots import make_subplots
 from collections import defaultdict
 import plotly.graph_objects as go
 import numpy as np
@@ -21,12 +19,13 @@ import numpy as np
 
 DEFAULT_N            = 20
 DEFAULT_LABEL_TIMES  = [-36, -24, -12]
-DEFAULT_LABEL_COLORS = ["#115e59", "#0d9488", "#5eead4"]  # dark → mid → light teal (-36, -24, -12)
-STATE_COLORS         = {"A": "#c4b5fd", "B": "#7c3aed", "C": "#2e1065"}  # light→dark purple
+DEFAULT_LABEL_COLORS = ["#115e59", "#0d9488", "#5eead4"]  # dark → mid → light teal
+STATE_COLORS         = {"A": "#c4b5fd", "B": "#7c3aed", "C": "#2e1065"}   # purple gradient
+STATE_COLORS_2       = {"X": "#fed7aa", "Y": "#f97316", "Z": "#7c2d12"}   # orange gradient
 UNLABELED_COLOR      = "#aaaaaa"
 FILL_ALPHA           = 0.70
 
-# ── colour helpers ────────────────────────────────────────────────────────────
+# ── colour helpers ─────────────────────────────────────────────────────────────
 
 def hex_to_rgba(hex_color: str, alpha: float = FILL_ALPHA) -> str:
     h = hex_color.lstrip("#")
@@ -39,10 +38,11 @@ def text_color_for(hex_color: str) -> str:
     r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     return "white" if 0.299*r + 0.587*g + 0.114*b < 140 else "#333"
 
-# ── simulation ────────────────────────────────────────────────────────────────
 
-def simulate_cells(n: int, min_circ: float = 12.0, max_circ: float = 24.0):
-    rng = np.random.default_rng(42)
+# ── simulation ─────────────────────────────────────────────────────────────────
+
+def simulate_cells(n: int, min_circ: float = 12.0, max_circ: float = 24.0, seed: int = 42):
+    rng = np.random.default_rng(seed)
     hi  = max(max_circ, min_circ + 1)
     cells = []
     for _ in range(n):
@@ -65,34 +65,91 @@ def get_final_state(te, t_b, t_c_abs):
     if h < t_c_abs:  return "B"
     return "C"
 
-# ── app layout ────────────────────────────────────────────────────────────────
+
+def get_final_state_2(te, t_xy, t_yz_abs):
+    h = -te
+    if h < t_xy:      return "X"
+    if h < t_yz_abs:  return "Y"
+    return "Z"
+
+
+def draw_rect_traces(cells, labels, cell_color_fn, state_names, transitions,
+                     y_lo_off, y_hi_off, state_color_map=None, y_positions=None):
+    """
+    Build batched fill-rect traces (one dict per unique color) for one trajectory.
+    Returns (rect_segs, state_annots).
+      y_lo_off / y_hi_off : offsets from cell's integer y position.
+      state_color_map     : if provided, each state's rect uses state_color_map[sname]
+                            instead of the label-driven cell_color_fn(label).
+      y_positions         : explicit y-center per cell; defaults to 1..N.
+    """
+    rect_segs    = defaultdict(lambda: {"x": [], "y": []})
+    state_annots = []
+    for i, ((ce, te), label) in enumerate(zip(cells, labels)):
+        y    = y_positions[i] if y_positions is not None else i + 1
+        y_lo = y + y_lo_off
+        y_hi = y + y_hi_off
+        for j, sname in enumerate(state_names):
+            col = state_color_map[sname] if state_color_map else cell_color_fn(label)
+            txt = text_color_for(col)
+            a_s = te + transitions[j]
+            a_e = (te + transitions[j + 1]) if j + 1 < len(transitions) else 0.0
+            a_s = max(a_s, te)
+            a_e = min(a_e, 0.0)
+            if a_s >= a_e:
+                continue
+            rect_segs[col]["x"] += [a_s, a_e, a_e, a_s, a_s, None]
+            rect_segs[col]["y"] += [y_lo, y_lo, y_hi, y_hi, y_lo, None]
+            if a_e - a_s > 0.5:
+                state_annots.append(dict(
+                    x=(a_s + a_e) / 2, y=(y_lo + y_hi) / 2,
+                    text=f"<b>{sname}</b>", showarrow=False,
+                    font=dict(size=8 if a_e - a_s < 3 else 9, color=txt),
+                    xanchor="center", yanchor="middle",
+                ))
+    return rect_segs, state_annots
+
+
+# ── app layout ─────────────────────────────────────────────────────────────────
 
 app = dash.Dash(__name__)
 
 _ls = {"fontFamily": "sans-serif", "fontSize": "13px"}
 _sm = {i: str(i) for i in range(0, 49, 6)}
-
-# shared small-graph style
 _sg = {"height": "220px"}
 
 app.layout = html.Div([
     html.H2("Zman-seq Trajectory Simulator",
             style={"textAlign": "center", "fontFamily": "sans-serif", "marginBottom": "8px"}),
 
-    # ── control panel ─────────────────────────────────────────────────────
+    # ── control panel ──────────────────────────────────────────────────────
     html.Div([
 
-        # trajectory transitions
+        # trajectory sliders (both trajectories)
         html.Div([
-            html.B("Trajectory transitions (hr after tumor entry)", style=_ls),
+            html.B("Trajectory 1  (A → B → C)", style={**_ls, "color": "#7c3aed"}),
             html.Div([
-                html.Label("State A → B:", style={**_ls, "width": "110px", "display": "inline-block"}),
+                html.Label("A → B:", style={**_ls, "width": "90px", "display": "inline-block"}),
                 dcc.Slider(id="t-b", min=1, max=47, step=1, value=12, marks=_sm,
                            tooltip={"placement": "bottom", "always_visible": True}),
             ], style={"marginTop": "8px"}),
             html.Div([
-                html.Label("State B duration:", style={**_ls, "width": "110px", "display": "inline-block"}),
+                html.Label("B duration:", style={**_ls, "width": "90px", "display": "inline-block"}),
                 dcc.Slider(id="t-c", min=1, max=48, step=1, value=12, marks=_sm,
+                           tooltip={"placement": "bottom", "always_visible": True}),
+            ], style={"marginTop": "12px"}),
+
+            html.Hr(style={"margin": "14px 0 10px", "borderColor": "#ddd"}),
+
+            html.B("Trajectory 2  (X → Y → Z)", style={**_ls, "color": "#3b82f6"}),
+            html.Div([
+                html.Label("X → Y:", style={**_ls, "width": "90px", "display": "inline-block"}),
+                dcc.Slider(id="t-xy", min=1, max=47, step=1, value=6, marks=_sm,
+                           tooltip={"placement": "bottom", "always_visible": True}),
+            ], style={"marginTop": "8px"}),
+            html.Div([
+                html.Label("Y duration:", style={**_ls, "width": "90px", "display": "inline-block"}),
+                dcc.Slider(id="t-yz", min=1, max=48, step=1, value=18, marks=_sm,
                            tooltip={"placement": "bottom", "always_visible": True}),
             ], style={"marginTop": "12px"}),
         ], style={"flex": "2", "paddingRight": "28px"}),
@@ -113,14 +170,20 @@ app.layout = html.Div([
                        tooltip={"placement": "bottom", "always_visible": True}),
         ], style={"flex": "1", "paddingRight": "28px"}),
 
-        # bar chart + CDF options
+        # display options
         html.Div([
-            html.B("Bar chart options", style=_ls),
+            html.B("Display options", style=_ls),
+            dcc.Checklist(
+                id="show-traj2",
+                options=[{"label": " Show trajectory 2 (X→Y→Z)", "value": "show"}],
+                value=[],
+                style={**_ls, "marginTop": "10px"},
+            ),
             dcc.Checklist(
                 id="show-unlabeled",
                 options=[{"label": " Include unlabeled cells", "value": "show"}],
                 value=["show"],
-                style={**_ls, "marginTop": "10px"},
+                style={**_ls, "marginTop": "8px"},
             ),
             html.B("CDF line style", style={**_ls, "display": "block", "marginTop": "14px"}),
             dcc.RadioItems(
@@ -133,7 +196,7 @@ app.layout = html.Div([
                 style={**_ls, "marginTop": "6px"},
                 labelStyle={"display": "block"},
             ),
-        ], style={"flex": "0 0 200px", "paddingRight": "20px"}),
+        ], style={"flex": "0 0 220px", "paddingRight": "20px"}),
 
         # label time points + colors
         html.Div([
@@ -159,34 +222,26 @@ app.layout = html.Div([
         "marginBottom": "12px",
     }),
 
-    # ── plot area ─────────────────────────────────────────────────────────
+    # ── plot area ──────────────────────────────────────────────────────────
     html.Div([
-
-        # main trajectory
         html.Div(dcc.Graph(id="main-plot"), style={"flex": "0 0 55%", "minWidth": 0}),
-
-        # right panel: 2×2 bar grid + CDF below
         html.Div([
-            # row 1: count charts
             html.Div([
                 html.Div(dcc.Graph(id="cnt-bin-plot",   style=_sg), style={"flex": "1"}),
                 html.Div(dcc.Graph(id="cnt-state-plot", style=_sg), style={"flex": "1"}),
             ], style={"display": "flex", "gap": "4px"}),
-            # row 2: proportion charts
             html.Div([
                 html.Div(dcc.Graph(id="prop-bin-plot",   style=_sg), style={"flex": "1"}),
                 html.Div(dcc.Graph(id="prop-state-plot", style=_sg), style={"flex": "1"}),
             ], style={"display": "flex", "gap": "4px", "marginTop": "4px"}),
-            # row 3: CDF
             dcc.Graph(id="cdf-plot", style={"height": "280px", "marginTop": "4px"}),
         ], style={"flex": "0 0 45%", "minWidth": 0}),
-
     ], style={"display": "flex", "gap": "6px"}),
 
 ], style={"maxWidth": "1800px", "margin": "0 auto", "padding": "10px"})
 
 
-# ── callback ──────────────────────────────────────────────────────────────────
+# ── callback ───────────────────────────────────────────────────────────────────
 
 @app.callback(
     Output("main-plot",       "figure"),
@@ -197,26 +252,36 @@ app.layout = html.Div([
     Output("cdf-plot",        "figure"),
     Input("t-b",          "value"),
     Input("t-c",          "value"),
+    Input("t-xy",         "value"),
+    Input("t-yz",         "value"),
     Input("n-cells",      "value"),
     Input("lt1", "value"), Input("lt2", "value"), Input("lt3", "value"),
     Input("lc1", "value"), Input("lc2", "value"), Input("lc3", "value"),
     Input("show-unlabeled", "value"),
+    Input("show-traj2",     "value"),
     Input("min-circ",     "value"),
     Input("max-circ",     "value"),
     Input("cdf-style",    "value"),
 )
-def update(t_b, t_c, n_cells, lt1, lt2, lt3, lc1, lc2, lc3,
-           show_unlabeled, min_circ, max_circ, cdf_style):
+def update(t_b, t_c, t_xy, t_yz, n_cells,
+           lt1, lt2, lt3, lc1, lc2, lc3,
+           show_unlabeled, show_traj2, min_circ, max_circ, cdf_style):
 
-    # ── parse inputs ──────────────────────────────────────────────────────
-    t_b     = int(t_b     or 12)
-    t_c_dur = int(t_c     or 12)
-    n_cells = int(n_cells or DEFAULT_N)
-    t_c_abs = t_b + t_c_dur
+    # ── parse inputs ───────────────────────────────────────────────────────
+    t_b      = int(t_b    or 12)
+    t_c_dur  = int(t_c    or 12)
+    t_xy_val = int(t_xy   or 6)
+    t_yz_dur = int(t_yz   or 18)
+    n_cells  = int(n_cells or DEFAULT_N)
 
-    raw_colors = [lc1 or DEFAULT_LABEL_COLORS[0],
-                  lc2 or DEFAULT_LABEL_COLORS[1],
-                  lc3 or DEFAULT_LABEL_COLORS[2]]
+    t_c_abs  = t_b + t_c_dur
+    t_yz_abs = t_xy_val + t_yz_dur
+
+    show_t2 = "show" in (show_traj2 or [])
+
+    raw_colors     = [lc1 or DEFAULT_LABEL_COLORS[0],
+                      lc2 or DEFAULT_LABEL_COLORS[1],
+                      lc3 or DEFAULT_LABEL_COLORS[2]]
     label_pairs    = [(float(t), c) for t, c in zip([lt1, lt2, lt3], raw_colors) if t is not None]
     label_times    = [p[0] for p in label_pairs]
     label_col_list = [p[1] for p in label_pairs]
@@ -225,19 +290,45 @@ def update(t_b, t_c, n_cells, lt1, lt2, lt3, lc1, lc2, lc3,
     def cell_color(label):
         return lt_to_color.get(label, UNLABELED_COLOR)
 
-    # ── simulate ──────────────────────────────────────────────────────────
-    cells  = simulate_cells(n_cells, float(min_circ or 12), float(max_circ or 24))
+    # ── simulate ───────────────────────────────────────────────────────────
+    _circ = (float(min_circ or 12), float(max_circ or 24))
+    cells  = simulate_cells(n_cells, *_circ, seed=42)
     labels = [get_label(ce, te, label_times) for ce, te in cells]
     states = [get_final_state(te, t_b, t_c_abs) for _, te in cells]
 
-    state_names = ["A", "B", "C"]
-    transitions = [0, t_b, t_c_abs]
+    state_names   = ["A", "B", "C"]
+    transitions_1 = [0, t_b, t_c_abs]
 
-    # ── main trajectory figure ────────────────────────────────────────────
-    fig   = go.Figure()
-    rect_h = 0.20
+    state_names_2 = ["X", "Y", "Z"]
+    transitions_2 = [0, t_xy_val, t_yz_abs]
 
-    # legend dummies
+    if show_t2:
+        # Independent population for XYZ — different seed
+        cells2  = simulate_cells(n_cells, *_circ, seed=42)
+        labels2 = [get_label(ce, te, label_times) for ce, te in cells2]
+        states2 = [get_final_state_2(te, t_xy_val, t_yz_abs) for _, te in cells2]
+
+        # Merge and sort all cells by tumor-entry time for the main plot
+        combined = sorted(
+            [("ABC", cell, lbl, st) for cell, lbl, st in zip(cells,  labels,  states )] +
+            [("XYZ", cell, lbl, st) for cell, lbl, st in zip(cells2, labels2, states2)],
+            key=lambda x: x[1][1],          # sort by te (ascending = most time in tumor first)
+        )
+        abc_ypos = [i + 1 for i, (pop, _, _, _) in enumerate(combined) if pop == "ABC"]
+        xyz_ypos = [i + 1 for i, (pop, _, _, _) in enumerate(combined) if pop == "XYZ"]
+        total_rows = len(combined)
+        _abc_n = _xyz_n = 0
+        y_tick_labels = []
+        for pop, _, _, _ in combined:
+            if pop == "ABC":
+                _abc_n += 1; y_tick_labels.append(f"A-{_abc_n:02d}")
+            else:
+                _xyz_n += 1; y_tick_labels.append(f"X-{_xyz_n:02d}")
+
+    # ── main trajectory figure ─────────────────────────────────────────────
+    fig = go.Figure()
+
+    # legend: label colors
     for lt, lc in zip(label_times, label_col_list):
         fig.add_trace(go.Scatter(x=[None], y=[None], mode="lines+markers",
                                  line=dict(color=lc, width=2), marker=dict(size=8, color=lc),
@@ -246,19 +337,48 @@ def update(t_b, t_c, n_cells, lt1, lt2, lt3, lc1, lc2, lc3,
                              line=dict(color=UNLABELED_COLOR, width=1.5, dash="dash"),
                              name="Unlabeled / pre-label", showlegend=True))
 
-    # dashed circulation lines (batched, added first → behind rectangles)
-    gray_x, gray_y = [], []
-    col_segs = defaultdict(lambda: {"x": [], "y": []})
-    for i, ((ce, te), label) in enumerate(zip(cells, labels)):
-        y        = i + 1
-        col      = cell_color(label)
-        gray_end = label if (label is not None and ce < label) else te
-        if ce < gray_end:
-            gray_x += [ce, gray_end, None]
-            gray_y += [y, y, None]
-        if label is not None and label <= te:
-            col_segs[col]["x"] += [label, te, None]
-            col_segs[col]["y"] += [y, y, None]
+    # legend: traj2 trajectory label (no separate state swatches — rects use label colors)
+    if show_t2:
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="lines",
+                                 line=dict(color=STATE_COLORS_2["Y"], width=2),
+                                 name="XYZ trajectory", showlegend=True))
+
+    # ── helper: batch circulation lines for one population ────────────────
+    def collect_circ_lines(pop_cells, pop_labels, ypos):
+        gx, gy = [], []
+        cs = defaultdict(lambda: {"x": [], "y": []})
+        for (ce, te), lbl, y in zip(pop_cells, pop_labels, ypos):
+            col      = cell_color(lbl)
+            gray_end = lbl if (lbl is not None and ce < lbl) else te
+            if ce < gray_end:
+                gx += [ce, gray_end, None]
+                gy += [y, y, None]
+            if lbl is not None and lbl <= te:
+                cs[col]["x"] += [lbl, te, None]
+                cs[col]["y"] += [y, y, None]
+        return gx, gy, cs
+
+    # Assign y positions: when traj2 on, merge-sort; otherwise sequential
+    if show_t2:
+        abc_y = abc_ypos
+        xyz_y = xyz_ypos
+        total_rows = total_rows       # set above in simulate block
+    else:
+        abc_y      = list(range(1, n_cells + 1))
+        xyz_y      = []
+        total_rows = n_cells
+
+    gx1, gy1, cs1 = collect_circ_lines(cells, labels, abc_y)
+    gray_x, gray_y = gx1, gy1
+    col_segs = cs1
+
+    if show_t2:
+        gx2, gy2, cs2 = collect_circ_lines(cells2, labels2, xyz_y)
+        gray_x += gx2
+        gray_y += gy2
+        for col, seg in cs2.items():
+            col_segs[col]["x"] += seg["x"]
+            col_segs[col]["y"] += seg["y"]
 
     if gray_x:
         fig.add_trace(go.Scatter(x=gray_x, y=gray_y, mode="lines",
@@ -269,49 +389,63 @@ def update(t_b, t_c, n_cells, lt1, lt2, lt3, lc1, lc2, lc3,
                                  line=dict(color=col, width=2.5, dash="dash"),
                                  showlegend=False, hoverinfo="skip"))
 
-    # circulation entry circles
-    fig.add_trace(go.Scatter(x=[ce for ce, _ in cells], y=list(range(1, n_cells+1)),
+    # Entry circles
+    fig.add_trace(go.Scatter(x=[ce for ce, _ in cells], y=abc_y,
                              mode="markers",
                              marker=dict(symbol="circle", size=6, color="#cccccc",
                                          line=dict(color="#888", width=1.5)),
                              showlegend=False, hoverinfo="skip"))
+    if show_t2:
+        fig.add_trace(go.Scatter(x=[ce for ce, _ in cells2], y=xyz_y,
+                                 mode="markers",
+                                 marker=dict(symbol="circle", size=6, color="#cccccc",
+                                             line=dict(color="#888", width=1.5)),
+                                 showlegend=False, hoverinfo="skip"))
 
-    # tumor rectangles (after dashes → on top)
-    rect_segs   = defaultdict(lambda: {"x": [], "y": []})
-    state_annots = []
-    for i, ((ce, te), label) in enumerate(zip(cells, labels)):
-        y   = i + 1
-        col = cell_color(label)
-        txt = text_color_for(col)
-        for j, sname in enumerate(state_names):
-            a_s = te + transitions[j]
-            a_e = (te + transitions[j+1]) if j+1 < len(transitions) else 0.0
-            a_s = max(a_s, te);  a_e = min(a_e, 0.0)
-            if a_s >= a_e:
-                continue
-            rect_segs[col]["x"] += [a_s, a_e, a_e, a_s, a_s, None]
-            rect_segs[col]["y"] += [y-rect_h, y-rect_h, y+rect_h, y+rect_h, y-rect_h, None]
-            if a_e - a_s > 0.5:
-                state_annots.append(dict(
-                    x=(a_s+a_e)/2, y=y, text=f"<b>{sname}</b>", showarrow=False,
-                    font=dict(size=9 if a_e-a_s < 3 else 10, color=txt),
-                    xanchor="center", yanchor="middle"))
-
-    for col, seg in rect_segs.items():
+    # Rects
+    all_annots = []
+    rect_segs_1, annots_1 = draw_rect_traces(
+        cells, labels, cell_color, state_names, transitions_1, -0.20, +0.20,
+        y_positions=abc_y)
+    all_annots += annots_1
+    for col, seg in rect_segs_1.items():
         fig.add_trace(go.Scatter(x=seg["x"], y=seg["y"], mode="lines",
                                  fill="toself", fillcolor=hex_to_rgba(col, FILL_ALPHA),
                                  line=dict(color=col, width=2),
                                  showlegend=False, hoverinfo="skip"))
 
-    plot_h = max(400, n_cells * 16 + 100)
+    if show_t2:
+        rect_segs_2, annots_2 = draw_rect_traces(
+            cells2, labels2, cell_color, state_names_2, transitions_2, -0.20, +0.20,
+            y_positions=xyz_y)
+        all_annots += annots_2
+        for col, seg in rect_segs_2.items():
+            fig.add_trace(go.Scatter(x=seg["x"], y=seg["y"], mode="lines",
+                                     fill="toself", fillcolor=hex_to_rgba(col, FILL_ALPHA),
+                                     line=dict(color=col, width=2),
+                                     showlegend=False, hoverinfo="skip"))
+
+    traj1_label = f"A (0–{t_b}hr) → B ({t_b}–{t_c_abs}hr) → C ({t_c_abs}hr+)"
+    traj2_label = (f"  |  X (0–{t_xy_val}hr) → Y ({t_xy_val}–{t_yz_abs}hr) → Z ({t_yz_abs}hr+)"
+                   if show_t2 else "")
+
+    plot_h = max(400, total_rows * 16 + 100)
+
+    if show_t2:
+        y_ticks  = list(range(1, total_rows + 1))
+        y_labels = y_tick_labels
+        y_range  = [0.4, total_rows + 0.6]
+    else:
+        y_ticks  = list(range(1, n_cells + 1))
+        y_labels = [f"Cell {i:02d}" for i in range(1, n_cells + 1)]
+        y_range  = [0.4, n_cells + 0.6]
+
     fig.update_layout(
-        title=dict(text=f"A (0–{t_b}hr) → B ({t_b}–{t_c_abs}hr) → C ({t_c_abs}hr+) after tumor entry",
-                   x=0.5, font=dict(size=12)),
+        title=dict(text=traj1_label + traj2_label, x=0.5, font=dict(size=12)),
         xaxis=dict(title="Absolute Time (hours)", range=[-50, 3],
                    tickvals=list(range(-48, 1, 6)), gridcolor="#eeeeee", zeroline=False),
-        yaxis=dict(title="Cell", range=[0.4, n_cells+0.6],
-                   tickvals=list(range(1, n_cells+1)),
-                   ticktext=[f"Cell {i:02d}" for i in range(1, n_cells+1)],
+        yaxis=dict(title="Cell", range=y_range,
+                   tickvals=y_ticks, ticktext=y_labels,
                    gridcolor="#eeeeee"),
         plot_bgcolor="white", paper_bgcolor="white",
         legend=dict(title="Labeling", x=1.01, y=1, xanchor="left",
@@ -326,10 +460,10 @@ def update(t_b, t_c, n_cells, lt1, lt2, lt3, lc1, lc2, lc3,
     fig.add_vline(x=0, line_color="black", line_width=1.5,
                   annotation_text="Harvest", annotation_position="top",
                   annotation_font=dict(size=10))
-    for ann in state_annots:
+    for ann in all_annots:
         fig.add_annotation(**ann)
 
-    # ── shared bin/count data ─────────────────────────────────────────────
+    # ── shared bin/count data ──────────────────────────────────────────────
     include_unlabeled = "show" in (show_unlabeled or [])
     all_bins   = label_times + ([None] if include_unlabeled else [])
     bin_names  = [f"{int(lt)}hr" for lt in label_times] + (["Unlabeled"] if include_unlabeled else [])
@@ -340,6 +474,12 @@ def update(t_b, t_c, n_cells, lt1, lt2, lt3, lc1, lc2, lc3,
         if label in counts:
             counts[label][state] += 1
 
+    counts2 = {b: {s: 0 for s in state_names_2} for b in all_bins}
+    if show_t2:
+        for label, state2 in zip(labels2, states2):
+            if label in counts2:
+                counts2[label][state2] += 1
+
     _base_layout = dict(
         plot_bgcolor="white", paper_bgcolor="white",
         margin=dict(l=45, r=20, t=35, b=35),
@@ -347,49 +487,75 @@ def update(t_b, t_c, n_cells, lt1, lt2, lt3, lc1, lc2, lc3,
                     bgcolor="rgba(0,0,0,0)", borderwidth=0),
     )
 
-    # ── count by time bin (grouped) ───────────────────────────────────────
-    cbin = go.Figure()
+    # ── count by time bin (all states stacked together) ────────────────────
+    cbin   = go.Figure()
+    base_c = [0] * len(all_bins)
     for s, sc in STATE_COLORS.items():
-        cbin.add_trace(go.Bar(name=f"State {s}",
-                              x=bin_names, y=[counts[b][s] for b in all_bins],
-                              marker_color=sc, legendgroup=f"st{s}"))
-    cbin.update_layout(barmode="group", title="Count by time bin",
+        y = [counts[b][s] for b in all_bins]
+        cbin.add_trace(go.Bar(name=f"State {s}", x=bin_names, y=y, base=base_c[:],
+                              marker_color=sc))
+        base_c = [b + v for b, v in zip(base_c, y)]
+    if show_t2:
+        for s, sc in STATE_COLORS_2.items():
+            y2 = [counts2[b][s] for b in all_bins]
+            cbin.add_trace(go.Bar(name=f"State {s}", x=bin_names, y=y2, base=base_c[:],
+                                  marker_color=sc))
+            base_c = [b + v for b, v in zip(base_c, y2)]
+    cbin.update_layout(barmode="overlay", title="Count by time bin",
                        yaxis_title="# cells", xaxis_title="Time bin",
                        yaxis=dict(gridcolor="#eeeeee"),
                        **_base_layout)
 
-    # ── count by state (grouped) ──────────────────────────────────────────
+    # ── count by state (grouped, XYZ bars use blue gradient) ──────────────
+    all_state_names = state_names + (state_names_2 if show_t2 else [])
     cstate = go.Figure()
     for b, bname, bc in zip(all_bins, bin_names, bin_colors):
-        cstate.add_trace(go.Bar(name=bname,
-                                x=state_names, y=[counts[b][s] for s in state_names],
+        y_vals = [counts[b][s] for s in state_names]
+        if show_t2:
+            y_vals += [counts2[b][s] for s in state_names_2]
+        cstate.add_trace(go.Bar(name=bname, x=all_state_names, y=y_vals,
                                 marker_color=bc, legendgroup=f"bn{bname}"))
     cstate.update_layout(barmode="group", title="Count by state",
                          yaxis_title="# cells", xaxis_title="State",
                          yaxis=dict(gridcolor="#eeeeee"),
                          **_base_layout)
 
-    # ── proportion by time bin (stacked, manual base) ─────────────────────
+    # ── proportion by time bin (all states stacked, combined denominator) ──
     pbin  = go.Figure()
-    tot_b = [sum(counts[b].values()) for b in all_bins]
-    base  = [0.0] * len(all_bins)
+    if show_t2:
+        tot_b = [sum(counts[b].values()) + sum(counts2[b].values()) for b in all_bins]
+    else:
+        tot_b = [sum(counts[b].values()) for b in all_bins]
+    base_p = [0.0] * len(all_bins)
     for s, sc in STATE_COLORS.items():
         prop = [counts[b][s] / t if t > 0 else 0 for b, t in zip(all_bins, tot_b)]
-        pbin.add_trace(go.Bar(name=f"State {s}", x=bin_names, y=prop, base=base[:],
-                               marker_color=sc, legendgroup=f"st{s}"))
-        base = [b + p for b, p in zip(base, prop)]
-    pbin.update_layout(barmode="overlay", title="Proportion by time bin",
-                       yaxis_title="Proportion", xaxis_title="Time bin",
-                       yaxis=dict(gridcolor="#eeeeee", range=[0, 1.05]),
-                       **_base_layout)
+        pbin.add_trace(go.Bar(name=f"State {s}", x=bin_names, y=prop, base=base_p[:],
+                               marker_color=sc))
+        base_p = [b + p for b, p in zip(base_p, prop)]
+    if show_t2:
+        for s, sc in STATE_COLORS_2.items():
+            prop2 = [counts2[b][s] / t if t > 0 else 0 for b, t in zip(all_bins, tot_b)]
+            pbin.add_trace(go.Bar(name=f"State {s}", x=bin_names, y=prop2, base=base_p[:],
+                                   marker_color=sc))
+            base_p = [b + p for b, p in zip(base_p, prop2)]
+    pbin.update_layout(
+        barmode="overlay",
+        title="Proportion by time bin",
+        yaxis_title="Proportion", xaxis_title="Time bin",
+        yaxis=dict(gridcolor="#eeeeee", range=[0, 1.05]),
+        **_base_layout,
+    )
 
-    # ── proportion by state (stacked, manual base) ────────────────────────
-    pstate  = go.Figure()
-    tot_s   = [sum(counts[b][s] for b in all_bins) for s in state_names]
-    base    = [0.0] * len(state_names)
+    # ── proportion by state (stacked) ─────────────────────────────────────
+    tot_s  = [sum(counts[b][s]  for b in all_bins) for s in state_names]
+    tot_s2 = [sum(counts2[b][s] for b in all_bins) for s in state_names_2]
+    base   = [0.0] * len(all_state_names)
+    pstate = go.Figure()
     for b, bname, bc in zip(all_bins, bin_names, bin_colors):
         prop = [counts[b][s] / t if t > 0 else 0 for s, t in zip(state_names, tot_s)]
-        pstate.add_trace(go.Bar(name=bname, x=state_names, y=prop, base=base[:],
+        if show_t2:
+            prop += [counts2[b][s] / t if t > 0 else 0 for s, t in zip(state_names_2, tot_s2)]
+        pstate.add_trace(go.Bar(name=bname, x=all_state_names, y=prop, base=base[:],
                                  marker_color=bc, legendgroup=f"bn{bname}"))
         base = [b + p for b, p in zip(base, prop)]
     pstate.update_layout(barmode="overlay", title="Proportion by state",
@@ -397,58 +563,44 @@ def update(t_b, t_c, n_cells, lt1, lt2, lt3, lc1, lc2, lc3,
                          yaxis=dict(gridcolor="#eeeeee", range=[0, 1.05]),
                          **_base_layout)
 
-    # ── CDF figure ────────────────────────────────────────────────────────
-    # x-axis runs from 0 → most-recent label → ... → earliest label (reversed time)
-    # Denominator: only LABELED cells in each state (unlabeled excluded)
-    # Cumulation: most-recent label first (e.g. -12, then -24, then -36)
-    sorted_lts_rev = sorted(label_times, reverse=True)   # e.g. [-12, -24, -36]
-
+    # ── CDF ────────────────────────────────────────────────────────────────
+    sorted_lts_rev = sorted(label_times, reverse=True)
     cdf_fig = go.Figure()
-    for s, sc in STATE_COLORS.items():
-        cell_labels_s = [lbl for lbl, st in zip(labels, states) if st == s]
-        n_labeled     = sum(1 for lbl in cell_labels_s if lbl is not None)
-        if n_labeled == 0 or not sorted_lts_rev:
-            continue
 
-        # Cumulative proportion, most-recent label first; last point forced to 1.0
-        cum, cum_props = 0, []
-        for lt in sorted_lts_rev:
-            cum += sum(1 for lbl in cell_labels_s if lbl == lt)
-            cum_props.append(cum / n_labeled)
-        cum_props[-1] = 1.0   # ensure the last point is exactly 100 %
+    def add_cdf_traces(lbl_list, st_list, color_map):
+        for s, sc in color_map.items():
+            cell_labels_s = [lbl for lbl, st in zip(lbl_list, st_list) if st == s]
+            n_labeled     = sum(1 for lbl in cell_labels_s if lbl is not None)
+            if n_labeled == 0 or not sorted_lts_rev:
+                continue
+            cum, cum_props = 0, []
+            for lt in sorted_lts_rev:
+                cum += sum(1 for lbl in cell_labels_s if lbl == lt)
+                cum_props.append(cum / n_labeled)
+            cum_props[-1] = 1.0
+            x_cdf = [0.0] + sorted_lts_rev
+            y_cdf = [0.0] + cum_props
+            if cdf_style == "hv":
+                auc = sum(y_cdf[i] * abs(x_cdf[i+1] - x_cdf[i]) for i in range(len(x_cdf) - 1))
+            else:
+                auc = sum((y_cdf[i] + y_cdf[i+1]) / 2 * abs(x_cdf[i+1] - x_cdf[i])
+                          for i in range(len(x_cdf) - 1))
+            cdf_fig.add_trace(go.Scatter(
+                x=x_cdf, y=y_cdf, mode="lines",
+                line=dict(color=sc, width=2.5, shape=cdf_style),
+                name=f"State {s}  (AUC = {np.abs(x_cdf[-1]) - auc:.1f})",
+            ))
 
-        # Points: (0, 0), (-12, p1), (-24, p1+p2), (-36, 1.0)
-        x_cdf = [0.0] + sorted_lts_rev
-        y_cdf = [0.0] + cum_props
+    add_cdf_traces(labels, states,  STATE_COLORS)
+    if show_t2:
+        add_cdf_traces(labels, states2, STATE_COLORS_2)
 
-        # AUC: trapezoid rule for diagonal lines, left-endpoint rectangles for hv steps
-        if cdf_style == "hv":
-            auc = sum(
-                y_cdf[i] * abs(x_cdf[i+1] - x_cdf[i])
-                for i in range(len(x_cdf) - 1)
-            )
-        else:
-            auc = sum(
-                (y_cdf[i] + y_cdf[i+1]) / 2 * abs(x_cdf[i+1] - x_cdf[i])
-                for i in range(len(x_cdf) - 1)
-            )
-
-        line_shape = cdf_style  # "linear" or "hv"
-        cdf_fig.add_trace(go.Scatter(
-            x=x_cdf, y=y_cdf, mode="lines",
-            line=dict(color=sc, width=2.5, shape=line_shape),
-            name=f"State {s}  (AUC = {np.abs(x_cdf[-1]) - auc:.1f})",
-        ))
-
-    # Diagonal reference line: (0, 0) → (earliest label time, 1.0)
     x_last = sorted_lts_rev[-1] if sorted_lts_rev else -36
     cdf_fig.add_trace(go.Scatter(
         x=[0.0, x_last], y=[0.0, 1.0], mode="lines",
         line=dict(color="black", width=1.5, dash="dash"),
         name="Uniform reference",
     ))
-
-    # x-axis: 0 on left, most-negative on right
     x_min = x_last - 3
     cdf_fig.update_layout(
         title="CDF: cumulative labeled fraction by state (labeled cells only)",

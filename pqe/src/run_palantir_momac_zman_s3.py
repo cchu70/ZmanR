@@ -1,0 +1,45 @@
+"""Run Palantir pseudotime on momac metacells using Zman Table S3 gene intersection."""
+import numpy as np, pandas as pd, matplotlib; matplotlib.use("Agg")
+import matplotlib.pyplot as plt, scanpy as sc, palantir
+
+ADATA_PATH = "/home/unix/cchu/projects/ZmanR/pqe/results/06/zmanseq_momac_metacells_annot_clean.h5ad"
+OUT_PLOT   = "/home/unix/cchu/projects/ZmanR/pqe/results/pseudotime_momac_zman_s3/palantir_pseudotime.png"
+ATREM_CSV  = "/mnt/thechenlab/ClaudiaC/zmanseq/mmc2.Table_S3_aTREM2_Time.csv"
+IGG_CSV    = "/mnt/thechenlab/ClaudiaC/zmanseq/mmc2.Table_S3_Isotype_Control_Time.csv"
+
+atrem = pd.read_csv(ATREM_CSV)
+igg   = pd.read_csv(IGG_CSV)
+atrem_sig = set(atrem.loc[atrem["Pvalue"] < 0.05, "Gene"])
+igg_sig   = set(igg.loc[igg["Pvalue"]   < 0.05, "Gene"])
+genes = list(atrem_sig & igg_sig)
+print(f"Zman S3 gene intersection: {len(genes)} genes")
+
+adata = sc.read_h5ad(ADATA_PATH)
+genes = [g for g in genes if g in adata.var_names]
+print(f"Genes present in adata: {len(genes)}")
+adata = adata[:, genes].copy()
+
+sc.pp.normalize_total(adata, target_sum=1e4); sc.pp.log1p(adata)
+
+palantir.utils.run_pca(adata, n_components=min(30, len(genes) - 1))
+palantir.utils.run_diffusion_maps(adata, n_components=10)
+palantir.utils.determine_multiscale_space(adata)
+
+neg_cells = adata.obs_names[adata.obs["enrichment"] == "IgG"]
+if len(neg_cells) == 0: neg_cells = adata.obs_names
+neg_sc_x  = adata.obs.loc[neg_cells, "sc_x"].astype(float)
+start_cell = neg_cells[np.argmin(np.abs(neg_sc_x - neg_sc_x.median()))]
+print(f"Start cell: {start_cell}")
+
+pr_res = palantir.core.run_palantir(adata, start_cell, num_waypoints=20, knn=10, use_early_cell_as_start=True)
+adata.obs["palantir_pseudotime"] = pr_res.pseudotime
+
+sc_x, sc_y, pt = adata.obs["sc_x"].astype(float), adata.obs["sc_y"].astype(float), adata.obs["palantir_pseudotime"].astype(float)
+fig, ax = plt.subplots(figsize=(6, 5))
+sc_plot = ax.scatter(sc_x, sc_y, c=pt, cmap="plasma", s=8, alpha=0.8, linewidths=0)
+plt.colorbar(sc_plot, ax=ax, label="Pseudotime")
+ax.set_title("Palantir pseudotime (momac zman_s3)"); ax.set_xlabel("sc_x"); ax.set_ylabel("sc_y")
+plt.tight_layout(); plt.savefig(OUT_PLOT, dpi=150); print(f"Plot saved to {OUT_PLOT}")
+
+out_tsv = OUT_PLOT.replace(".png", ".tsv")
+adata.obs.to_csv(out_tsv, sep="\t"); print(f"TSV saved to {out_tsv}")

@@ -17,6 +17,7 @@ Metacell construction parameters:
 
 import re
 import numpy as np
+import scipy.sparse as sp
 import scanpy as sc
 import metacells as mc
 from pathlib import Path
@@ -112,8 +113,28 @@ cells_out = OUT_DIR / "zmanseq_cells.h5ad"
 mc_out    = OUT_DIR / "zmanseq_metacells.h5ad"
 
 adata.write_h5ad(cells_out)
+
+
+# ── 8. Metacell adjacency matrix via kNN on log-transformed expression ────────
+
+print("Computing metacell adjacency matrix ...")
+_tmp = mcdata.copy()
+sc.pp.log1p(_tmp)
+n_comps = min(50, _tmp.n_obs - 2, _tmp.n_vars - 1)
+sc.pp.pca(_tmp, n_comps=n_comps)
+n_neighbors = min(15, _tmp.n_obs - 1)
+sc.pp.neighbors(_tmp, n_neighbors=n_neighbors)
+
+mcdata.obsp["connectivities"] = _tmp.obsp["connectivities"]
+mcdata.obsp["distances"]      = _tmp.obsp["distances"]
+mcdata.uns["neighbors"]       = _tmp.uns["neighbors"]
+
+adj_out = OUT_DIR / "zmanseq_metacell_adjacency.npz"
+sp.save_npz(adj_out, _tmp.obsp["connectivities"])
+
 mcdata.write_h5ad(mc_out)
 
-print(f"Saved cells     → {cells_out}")
-print(f"Saved metacells → {mc_out}")
+print(f"Saved cells      → {cells_out}")
+print(f"Saved metacells  → {mc_out}")
+print(f"Saved adjacency  → {adj_out}")
 print("Done.")

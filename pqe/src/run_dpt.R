@@ -5,7 +5,8 @@
 ADATA_PATH <- "/home/unix/cchu/projects/ZmanR/pqe/results/04/zmanseq.h5ad"
 OUT_PLOT   <- "/home/unix/cchu/projects/ZmanR/pqe/results/pseudotime/dpt_pseudotime.png"
 
-source(file.path(dirname(sys.frame(1)$ofile), "utils.R"))
+.script_dir <- dirname(normalizePath(sub("--file=", "", commandArgs(FALSE)[grep("--file=", commandArgs(FALSE))])))
+source(file.path(.script_dir, "utils.R"))
 library(destiny)
 
 # Load and preprocess
@@ -22,3 +23,5 @@ dpt <- DPT(dm, tips = 1L)
 
 # dpt$DPT1 holds the pseudotime from the first tip
 save_pseudotime_plot(dat$sc_x, dat$sc_y, dpt$DPT1, OUT_PLOT, "DPT (destiny) pseudotime")
+save_pseudotime_tsv(dat$cell_names, dat$coldata, dpt$DPT1,
+                    sub("\\.png$", ".tsv", OUT_PLOT))

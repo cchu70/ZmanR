@@ -29,8 +29,9 @@ adata = adata[:, adata.var.highly_variable].copy()
 
 # ── 2. Run Palantir preprocessing ────────────────────────────────────────────
 print("Running PCA and diffusion maps...")
-palantir.preprocess.run_pca(adata, n_components=30)
+palantir.utils.run_pca(adata, n_components=30)
 palantir.utils.run_diffusion_maps(adata, n_components=10)
+palantir.utils.determine_multiscale_space(adata)
 
 # ── 3. Pick start cell — use a cell from the "Negative" (uninfected) group ──
 neg_cells = adata.obs_names[adata.obs["time_assignment"] == "Negative"]
@@ -66,3 +67,8 @@ ax.set_ylabel("sc_y")
 plt.tight_layout()
 plt.savefig(OUT_PLOT, dpi=150)
 print(f"Plot saved to {OUT_PLOT}")
+
+# Save pseudotime + full cell annotations as TSV
+out_tsv = OUT_PLOT.replace(".png", ".tsv")
+adata.obs.to_csv(out_tsv, sep="\t")
+print(f"TSV saved to {out_tsv}")

@@ -5,7 +5,8 @@
 ADATA_PATH <- "/home/unix/cchu/projects/ZmanR/pqe/results/04/zmanseq.h5ad"
 OUT_PLOT   <- "/home/unix/cchu/projects/ZmanR/pqe/results/pseudotime/monocle2_pseudotime.png"
 
-source(file.path(dirname(sys.frame(1)$ofile), "utils.R"))
+.script_dir <- dirname(normalizePath(sub("--file=", "", commandArgs(FALSE)[grep("--file=", commandArgs(FALSE))])))
+source(file.path(.script_dir, "utils.R"))
 library(monocle)
 
 # Load and preprocess
@@ -24,13 +25,9 @@ cat("Building CellDataSet...\n")
 cds <- newCellDataSet(expr_mat, phenoData = pd, featureData = fd,
                       expressionFamily = tobit())
 cds <- estimateSizeFactors(cds)
-cds <- estimateDispersions(cds)
 
-# Use high-dispersion genes for ordering
-disp_table     <- dispersionTable(cds)
-ordering_genes <- subset(disp_table,
-                         mean_expression >= 0.1 &
-                         dispersion_empirical >= 1 * dispersion_fit)$gene_id
+# HVGs already selected by load_adata — use all of them as ordering genes
+ordering_genes <- rownames(expr_mat)
 cat("Ordering genes:", length(ordering_genes), "\n")
 cds <- setOrderingFilter(cds, ordering_genes)
 
@@ -41,3 +38,5 @@ cds <- orderCells(cds)
 
 pseudotime <- pData(cds)$Pseudotime
 save_pseudotime_plot(dat$sc_x, dat$sc_y, pseudotime, OUT_PLOT, "Monocle2 pseudotime")
+save_pseudotime_tsv(dat$cell_names, dat$coldata, pseudotime,
+                    sub("\\.png$", ".tsv", OUT_PLOT))

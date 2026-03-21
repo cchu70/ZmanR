@@ -7,7 +7,8 @@
 ADATA_PATH <- "/home/unix/cchu/projects/ZmanR/pqe/results/04/zmanseq.h5ad"
 OUT_PLOT   <- "/home/unix/cchu/projects/ZmanR/pqe/results/pseudotime/redpath_pseudotime.png"
 
-source(file.path(dirname(sys.frame(1)$ofile), "utils.R"))
+.script_dir <- dirname(normalizePath(sub("--file=", "", commandArgs(FALSE)[grep("--file=", commandArgs(FALSE))])))
+source(file.path(.script_dir, "utils.R"))
 library(redPATH)
 
 # Load and preprocess — hard cap at 300 cells
@@ -24,3 +25,5 @@ cat("Running redPATH...\n")
 pseudotime <- redpath(filtered, threadnum = 4, base_path_range = c(3:7))
 
 save_pseudotime_plot(dat$sc_x, dat$sc_y, pseudotime, OUT_PLOT, "redPATH pseudotime")
+save_pseudotime_tsv(dat$cell_names, dat$coldata, pseudotime,
+                    sub("\\.png$", ".tsv", OUT_PLOT))
