@@ -21,6 +21,8 @@ import scanpy as sc
 RESULTS  = "/home/unix/cchu/projects/ZmanR/pqe/results"
 REPO     = os.path.join(RESULTS, "06")
 ADATA    = os.path.join(REPO, "zmanseq_momac_metacells_annot_clean.h5ad")
+ADATA_MCUMI = os.path.join(REPO, "zmanseq_momac_metacells_annot_clean_mcumi.h5ad")
+SPEARMAN_DIR = os.path.join(REPO, "ctet_mos/spearman")
 OUT_DIR  = os.path.join(RESULTS, "07")
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -37,12 +39,27 @@ TOOLS = {
 
 # ── Gene-set variants and their result directories ──────────────────────────
 VARIANTS = {
+    # Original momac variants (zmanseq_momac_metacells_annot.h5ad)
     "momac":            "pseudotime_momac",
     "momac_smooth":     "pseudotime_momac_smooth",
     "momac_hvg":        "pseudotime_momac_hvg",
     "momac_zman_s3":    "pseudotime_momac_zman_s3",
     "momac_full":       "pseudotime_momac_full",
     "momac_smooth_full":"pseudotime_momac_smooth_full",
+    # scumi variants (zmanseq_momac_metacells_annot_clean.h5ad)
+    "scumi_hvg_ctet":        "pseudotime_scumi_hvg_ctet",
+    "scumi_hvg_smooth_ctet": "pseudotime_scumi_hvg_smooth_ctet",
+    "scumi_full_ctet":       "pseudotime_scumi_full_ctet",
+    "scumi_full_smooth_ctet":"pseudotime_scumi_full_smooth_ctet",
+    "scumi_hvg":             "pseudotime_scumi_hvg",
+    "scumi_zman_s3":         "pseudotime_scumi_zman_s3",
+    # mcumi variants (zmanseq_momac_metacells_annot_clean_mcumi.h5ad)
+    "mcumi_hvg_ctet":        "pseudotime_mcumi_hvg_ctet",
+    "mcumi_hvg_smooth_ctet": "pseudotime_mcumi_hvg_smooth_ctet",
+    "mcumi_full_ctet":       "pseudotime_mcumi_full_ctet",
+    "mcumi_full_smooth_ctet":"pseudotime_mcumi_full_smooth_ctet",
+    "mcumi_hvg":             "pseudotime_mcumi_hvg",
+    "mcumi_zman_s3":         "pseudotime_mcumi_zman_s3",
 }
 
 # ── Gene-set size table ──────────────────────────────────────────────────────
@@ -50,8 +67,14 @@ VARIANTS = {
 print("Loading adata for gene-set size computation...")
 _ad       = sc.read_h5ad(ADATA)
 adata_var = set(_ad.var_names)
-hvg_genes = set(_ad.var_names[_ad.var["highly_variable"]])
+# Compute HVGs the same way as spearman script
+import scanpy as _sc; _ad_tmp = _ad.copy(); _sc.pp.highly_variable_genes(_ad_tmp, n_top_genes=1000)
+hvg_genes_scumi = set(_ad_tmp.var_names[_ad_tmp.var["highly_variable"]]); del _ad_tmp
 del _ad
+
+_ad_mc = sc.read_h5ad(ADATA_MCUMI)
+_ad_tmp2 = _ad_mc.copy(); _sc.pp.highly_variable_genes(_ad_tmp2, n_top_genes=1000)
+hvg_genes_mcumi = set(_ad_tmp2.var_names[_ad_tmp2.var["highly_variable"]]); del _ad_tmp2, _ad_mc
 
 def _sig(df, col="p_value", thresh=0.05):
     return set(df.index[df[col] < thresh])
@@ -59,7 +82,20 @@ def _sig(df, col="p_value", thresh=0.05):
 def _sig_named(df, gene_col, pval_col, thresh=0.05):
     return set(df.loc[df[pval_col] < thresh, gene_col])
 
+def _ctet_mos(label, geneset, timecol):
+    igg   = pd.read_csv(f"{SPEARMAN_DIR}/{label}_igg_{geneset}_{timecol}_spearman.csv",   index_col=0)
+    atrem = pd.read_csv(f"{SPEARMAN_DIR}/{label}_atrem_{geneset}_{timecol}_spearman.csv", index_col=0)
+    return _sig(igg) & _sig(atrem)
+
+_zman_s3 = (
+    _sig_named(pd.read_csv("/mnt/thechenlab/ClaudiaC/zmanseq/mmc2.Table_S3_aTREM2_Time.csv"),
+               "Gene", "Pvalue") &
+    _sig_named(pd.read_csv("/mnt/thechenlab/ClaudiaC/zmanseq/mmc2.Table_S3_Isotype_Control_Time.csv"),
+               "Gene", "Pvalue")
+)
+
 GENE_SET_SOURCES = {
+    # Original momac variants
     "momac": (
         _sig(pd.read_csv(f"{REPO}/igg_hvg_spearman_df.naive.csv",   index_col=0)) &
         _sig(pd.read_csv(f"{REPO}/atrem_hvg_spearman_df.naive.csv", index_col=0))
@@ -68,13 +104,8 @@ GENE_SET_SOURCES = {
         _sig(pd.read_csv(f"{REPO}/smoothed_igg_hvg_spearman_df.csv",   index_col=0)) &
         _sig(pd.read_csv(f"{REPO}/smoothed_atrem_hvg_spearman_df.csv", index_col=0))
     ),
-    "momac_hvg": hvg_genes,
-    "momac_zman_s3": (
-        _sig_named(pd.read_csv("/mnt/thechenlab/ClaudiaC/zmanseq/mmc2.Table_S3_aTREM2_Time.csv"),
-                   "Gene", "Pvalue") &
-        _sig_named(pd.read_csv("/mnt/thechenlab/ClaudiaC/zmanseq/mmc2.Table_S3_Isotype_Control_Time.csv"),
-                   "Gene", "Pvalue")
-    ),
+    "momac_hvg": hvg_genes_scumi,
+    "momac_zman_s3": _zman_s3,
     "momac_full": (
         _sig(pd.read_csv(f"{REPO}/igg_full_spearman_df.naive.csv",   index_col=0)) &
         _sig(pd.read_csv(f"{REPO}/atrem_full_spearman_df.naive.csv", index_col=0))
@@ -83,6 +114,20 @@ GENE_SET_SOURCES = {
         _sig(pd.read_csv(f"{REPO}/smoothed_igg_full_spearman_df.csv",   index_col=0)) &
         _sig(pd.read_csv(f"{REPO}/smoothed_atrem_full_spearman_df.csv", index_col=0))
     ),
+    # scumi variants
+    "scumi_hvg_ctet":         _ctet_mos("scumi", "hvg",  "ctet"),
+    "scumi_hvg_smooth_ctet":  _ctet_mos("scumi", "hvg",  "smooth_ctet"),
+    "scumi_full_ctet":        _ctet_mos("scumi", "full", "ctet"),
+    "scumi_full_smooth_ctet": _ctet_mos("scumi", "full", "smooth_ctet"),
+    "scumi_hvg":              hvg_genes_scumi,
+    "scumi_zman_s3":          _zman_s3,
+    # mcumi variants
+    "mcumi_hvg_ctet":         _ctet_mos("mcumi", "hvg",  "ctet"),
+    "mcumi_hvg_smooth_ctet":  _ctet_mos("mcumi", "hvg",  "smooth_ctet"),
+    "mcumi_full_ctet":        _ctet_mos("mcumi", "full", "ctet"),
+    "mcumi_full_smooth_ctet": _ctet_mos("mcumi", "full", "smooth_ctet"),
+    "mcumi_hvg":              hvg_genes_mcumi,
+    "mcumi_zman_s3":          _zman_s3,
 }
 
 gene_size_rows = []

@@ -82,3 +82,21 @@ load_hvg_genes <- function(h5ad_path) {
   cat("HVG genes from adata.var:", length(genes), "genes\n")
   genes
 }
+
+CTET_MOS_SPEARMAN_DIR <- file.path(REPO_ROOT, "results/06/ctet_mos/spearman")
+
+# Load intersection of significant genes from ctet_mos spearman tables.
+# label: "scumi" or "mcumi"
+# geneset: "hvg" or "full"
+# timecol: "ctet" or "smooth_ctet"
+load_ctet_mos_genes <- function(label, geneset = "hvg", timecol = "ctet", pval_thresh = 0.05) {
+  f_atrem <- file.path(CTET_MOS_SPEARMAN_DIR, paste0(label, "_atrem_", geneset, "_", timecol, "_spearman.csv"))
+  f_igg   <- file.path(CTET_MOS_SPEARMAN_DIR, paste0(label, "_igg_",   geneset, "_", timecol, "_spearman.csv"))
+  df_atrem <- read.csv(f_atrem, row.names = 1)
+  df_igg   <- read.csv(f_igg,   row.names = 1)
+  sig_atrem <- rownames(df_atrem)[df_atrem$p_value < pval_thresh]
+  sig_igg   <- rownames(df_igg)[df_igg$p_value   < pval_thresh]
+  genes <- intersect(sig_atrem, sig_igg)
+  cat("ctet_mos genes (", label, geneset, timecol, "p <", pval_thresh, "):", length(genes), "genes\n")
+  genes
+}
