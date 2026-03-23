@@ -2,7 +2,11 @@
 import numpy as np, pandas as pd, matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt, scanpy as sc, palantir
 
-ADATA_PATH = "/home/unix/cchu/projects/ZmanR/pqe/results/06/zmanseq_momac_metacells_annot_clean.h5ad"
+# Load adata from numpy/CSV exports (avoids anndata version compatibility issues)
+_X   = np.load("/home/unix/cchu/projects/ZmanR/pqe/results/06/zmanseq_momac_metacells_annot_clean_X.npy")
+_obs = pd.read_csv("/home/unix/cchu/projects/ZmanR/pqe/results/06/zmanseq_momac_metacells_annot_clean_obs.csv", index_col=0)
+_var = pd.read_csv("/home/unix/cchu/projects/ZmanR/pqe/results/06/zmanseq_momac_metacells_annot_clean_var.csv", index_col=0)
+adata_full = sc.AnnData(X=_X, obs=_obs, var=_var)
 OUT_PLOT   = "/home/unix/cchu/projects/ZmanR/pqe/results/pseudotime_scumi_full_ctet/palantir_pseudotime.png"
 
 igg_df   = pd.read_csv(f"/home/unix/cchu/projects/ZmanR/pqe/results/06/ctet_mos/spearman/scumi_igg_full_ctet_spearman.csv",   index_col=0)
@@ -10,15 +14,14 @@ atrem_df = pd.read_csv(f"/home/unix/cchu/projects/ZmanR/pqe/results/06/ctet_mos/
 genes = list(set(igg_df.index[igg_df["p_value"] < 0.05]) & set(atrem_df.index[atrem_df["p_value"] < 0.05]))
 print(f"scumi full ctet gene intersection: {len(genes)} genes")
 
-adata = sc.read_h5ad(ADATA_PATH)
-genes = [g for g in genes if g in adata.var_names]
-print(f"Genes present in adata: {len(genes)}")
-adata = adata[:, genes].copy()
+genes_in = [g for g in genes if g in adata_full.var_names]
+print(f"Genes present in adata: {len(genes_in)}")
+adata = adata_full[:, genes_in].copy()
 
 # Mark all genes as highly_variable so run_pca uses the full gene set
 adata.var["highly_variable"] = True
 
-n_pcs = min(10, len(genes) - 1)
+n_pcs = min(10, len(genes_in) - 1)
 palantir.utils.run_pca(adata, n_components=n_pcs)
 palantir.utils.run_diffusion_maps(adata, n_components=min(5, n_pcs))
 palantir.utils.determine_multiscale_space(adata)

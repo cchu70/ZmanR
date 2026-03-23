@@ -26,4 +26,4 @@ cat("Start cell:", start_cell, "root state:", as.character(root_state), "\n")
 cds <- orderCells(cds, root_state = root_state)
 pseudotime <- pData(cds)$Pseudotime
 save_pseudotime_plot(dat$sc_x, dat$sc_y, pseudotime, OUT_PLOT, "Monocle2 pseudotime (mcumi full_smooth_ctet)")
-save_pseudotime_tsv(dat$cell_names, dat$coldata, pseudotime, sub("\.png$", ".tsv", OUT_PLOT))
+save_pseudotime_tsv(dat$cell_names, dat$coldata, pseudotime, sub("[.]png$", ".tsv", OUT_PLOT))

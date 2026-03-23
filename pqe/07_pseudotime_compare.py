@@ -3,7 +3,9 @@ Combine all momac pseudotime outputs into a single multi-indexed TSV.
 
 Rows:    54 metacells (indexed by cell name)
 Columns: two levels —
-  level 0: "meta"                → shared obs metadata (sc_x, sc_y, cTET, etc.)
+  level 0: "meta"                → shared obs metadata from scorpius ref TSV
+           "meta_scumi"          → cTET + smooth_cTET from scumi adata obs
+           "meta_mcumi"          → cTET + smooth_cTET from mcumi adata obs
            "{tool}_{gene_set}"   → tool + gene-set combination
   level 1: column name within that group;
            the harmonized pseudotime is always labelled "pseudotime"
@@ -174,6 +176,20 @@ meta_df.columns = [c.lstrip("X") if c.startswith("X__") or
 # Build multi-indexed metadata block
 meta_mi = pd.concat({"meta": meta_df}, axis=1)
 
+# ── cTET / smooth_cTET from adata obs tables ─────────────────────────────────
+CTET_COLS = ["cTET", "smooth_cTET"]
+
+_ad_scumi = sc.read_h5ad(ADATA)
+meta_scumi_df = _ad_scumi.obs[CTET_COLS].copy()
+del _ad_scumi
+
+_ad_mcumi = sc.read_h5ad(ADATA_MCUMI)
+meta_mcumi_df = _ad_mcumi.obs[CTET_COLS].copy()
+del _ad_mcumi
+
+meta_scumi_mi = pd.concat({"meta_scumi": meta_scumi_df}, axis=1)
+meta_mcumi_mi = pd.concat({"meta_mcumi": meta_mcumi_df}, axis=1)
+
 # ── Build tool blocks ────────────────────────────────────────────────────────
 tool_frames = []
 
@@ -204,7 +220,7 @@ for variant_name, variant_dir in VARIANTS.items():
         print(f"  Loaded {label}: {list(tool_df.columns)}")
 
 # ── Combine all ──────────────────────────────────────────────────────────────
-combined = pd.concat([meta_mi] + tool_frames, axis=1)
+combined = pd.concat([meta_mi, meta_scumi_mi, meta_mcumi_mi] + tool_frames, axis=1)
 combined.index.name = "cell_id"
 
 out_path = os.path.join(OUT_DIR, "pseudotime_momac_all.tsv")

@@ -26,4 +26,4 @@ pt_atrem <- dpt_mat[, tip_atrem]
 pt_igg   <- dpt_mat[, tip_igg]
 dpt_cols <- data.frame(DPT_root = pt_root, DPT_atrem = pt_atrem, DPT_igg = pt_igg)
 save_pseudotime_plot(dat$sc_x, dat$sc_y, pt_root, OUT_PLOT, "DPT pseudotime (scumi full_ctet)")
-save_pseudotime_tsv(dat$cell_names, dat$coldata, pt_root, sub("\.png$", ".tsv", OUT_PLOT), extra_cols = dpt_cols)
+save_pseudotime_tsv(dat$cell_names, dat$coldata, pt_root, sub("[.]png$", ".tsv", OUT_PLOT), extra_cols = dpt_cols)
